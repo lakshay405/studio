@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { ThumbsUp, Info, BookOpen, AlertCircle, CheckCircle, BarChart3, ClipboardList, PackageSearch, FlaskConical, Microscope } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface HealthReportDisplayProps {
   report: HealthAnalysisOutput;
