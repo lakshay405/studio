@@ -11,7 +11,7 @@ import {
   ThumbsUp, Info, BookOpen, AlertCircle, CheckCircle, BarChart3, ClipboardList, 
   PackageSearch, FlaskConical, Microscope, MapPin, Globe, AlertTriangle, 
   ShieldCheck, Shuffle, AlertOctagon, PlusCircle, MinusCircle, ArrowRightCircle,
-  HeartPulse, Users, ShieldAlert, Lightbulb, Scale, ThumbsDown
+  HeartPulse, Users, ShieldAlert, Lightbulb, Scale, ThumbsDown, FileText
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -21,29 +21,65 @@ interface HealthReportDisplayProps {
 }
 
 const RiskLevelBadge: React.FC<{ level?: string, score?: number }> = ({ level, score }) => {
-  if (!level) return null;
+  if (!level && !score) return null;
+  if (!level && score) level = score <= 2 ? "Low Concern" : score <= 3.5 ? "Moderate Concern" : "High Concern";
+
   let variant: "default" | "secondary" | "destructive" = "secondary";
   let icon = <Info className="h-4 w-4 mr-1" />;
+  let textColor = "text-yellow-700"; // Default for moderate
 
-  const normalizedLevel = level.toLowerCase();
+  const normalizedLevel = level?.toLowerCase() || "";
   if (normalizedLevel.includes("low")) {
-    variant = "default"; // Greenish in default theme
+    variant = "default"; 
     icon = <ShieldCheck className="h-4 w-4 mr-1 text-green-600" />;
+    textColor = "text-green-700";
   } else if (normalizedLevel.includes("moderate") || normalizedLevel.includes("medium")) {
-    variant = "secondary"; // Yellowish/Orangeish in default theme (using accent color)
+    variant = "secondary"; 
     icon = <AlertTriangle className="h-4 w-4 mr-1 text-yellow-500" />;
+    textColor = "text-yellow-700";
   } else if (normalizedLevel.includes("high")) {
     variant = "destructive";
     icon = <ShieldAlert className="h-4 w-4 mr-1" />;
+    textColor = "text-red-700";
   }
   
   return (
-    <Badge variant={variant} className="text-sm py-1 px-3">
+    <Badge variant={variant} className={cn("text-sm py-1 px-3", textColor, 
+      variant === 'default' && 'bg-green-100 border-green-300',
+      variant === 'secondary' && 'bg-yellow-100 border-yellow-300',
+      variant === 'destructive' && 'bg-red-100 border-red-300'
+    )}>
       {icon}
-      {level} {score && `(${score}/5)`}
+      {level} {score && `(${score.toFixed(1)}/5)`}
     </Badge>
   );
 };
+
+const EstimatedNutriScoreBadge: React.FC<{ score?: "A" | "B" | "C" | "D" | "E" }> = ({ score }) => {
+  if (!score) return null;
+
+  let bgColor = "bg-gray-400";
+  let textColor = "text-white";
+  let label = "Nutri-Score";
+
+  switch (score) {
+    case "A": bgColor = "bg-green-700"; label = "Nutri-Score A (Best)"; break;
+    case "B": bgColor = "bg-lime-600"; label = "Nutri-Score B"; break;
+    case "C": bgColor = "bg-yellow-500"; textColor = "text-gray-800"; label = "Nutri-Score C"; break;
+    case "D": bgColor = "bg-orange-500"; label = "Nutri-Score D"; break;
+    case "E": bgColor = "bg-red-600"; label = "Nutri-Score E (Worst)"; break;
+  }
+
+  return (
+    <div className="flex flex-col items-center">
+      <span className={cn("text-3xl font-bold px-3 py-1 rounded-md", bgColor, textColor)}>
+        {score}
+      </span>
+      <span className="text-xs text-muted-foreground mt-1">{label} (Estimated)</span>
+    </div>
+  );
+};
+
 
 const SpecificConcernIcon: React.FC<{ concern: string }> = ({ concern }) => {
   const lcConcern = concern.toLowerCase();
@@ -98,7 +134,7 @@ export function HealthReportDisplay({ report, productIdentifier }: HealthReportD
     <Card className="mt-8 shadow-xl w-full overflow-hidden">
       <CardHeader className="bg-muted/30 p-6">
         <div className="flex items-start sm:items-center gap-3 flex-col sm:flex-row">
-          <HeartPulse className="h-8 w-8 text-primary flex-shrink-0" />
+          <FileText className="h-8 w-8 text-primary flex-shrink-0" />
           <div>
             <CardTitle className="text-2xl md:text-3xl text-primary">Health & Nutrition Analysis</CardTitle>
             {productIdentifier && <CardDescription className="text-md text-muted-foreground mt-1">For: {productIdentifier}</CardDescription>}
@@ -132,20 +168,29 @@ export function HealthReportDisplay({ report, productIdentifier }: HealthReportD
           </h2>
           <p className="text-foreground/90 leading-relaxed whitespace-pre-wrap">{report.summary || "No summary provided."}</p>
         </section>
-
-        {report.overallRiskLevel && (
-          <>
-            <Separator />
-            <section aria-labelledby="overall-risk-section">
-              <h2 id="overall-risk-section" className="text-xl font-semibold flex items-center gap-2 mb-3 text-primary">
-                <Scale className="h-5 w-5" />
-                Overall Health Risk
+        
+        <Separator />
+        
+        <section aria-labelledby="key-indicators-section" className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+          <div>
+            <h2 id="overall-risk-section" className="text-xl font-semibold flex items-center gap-2 mb-3 text-primary">
+              <Scale className="h-5 w-5" />
+              Overall Health Risk
+            </h2>
+            <RiskLevelBadge level={report.overallRiskLevel} score={report.overallRiskScore} />
+            <p className="text-sm text-muted-foreground mt-1">Based on ingredients, additives, and regional considerations for {report.detectedRegion || "this product"}.</p>
+          </div>
+          {report.estimatedNutriScore && (
+            <div className="flex flex-col items-start md:items-end">
+               <h2 id="nutri-score-section" className="text-xl font-semibold flex items-center gap-2 mb-3 text-primary self-start md:self-auto">
+                <FileText className="h-5 w-5" /> {/* Using FileText as placeholder, can change */}
+                Estimated Nutri-Score
               </h2>
-              <RiskLevelBadge level={report.overallRiskLevel} score={report.overallRiskScore} />
-               <p className="text-sm text-muted-foreground mt-1">Based on ingredients, additives, and regional considerations for {report.detectedRegion || "this product"}.</p>
-            </section>
-          </>
-        )}
+              <EstimatedNutriScoreBadge score={report.estimatedNutriScore} />
+              <p className="text-xs text-muted-foreground mt-1 text-left md:text-right w-full">Note: This is an AI-generated estimate based on ingredients, not a precise calculation.</p>
+            </div>
+          )}
+        </section>
         
         <Separator />
 
@@ -168,8 +213,8 @@ export function HealthReportDisplay({ report, productIdentifier }: HealthReportD
                   </AccordionTrigger>
                   <AccordionContent className="space-y-2 pt-2 text-sm">
                     <p><strong className="font-semibold text-primary/90">Purpose:</strong> <span className="text-foreground/80">{ingredient.description || "N/A"}</span></p>
-                    <p><strong className="font-semibold text-primary/90">Health Effects (India Context):</strong> <span className="text-foreground/80">{ingredient.healthEffects || "N/A"}</span></p>
-                    <p><strong className="font-semibold text-primary/90">Safety/Concern Level:</strong> <Badge variant={ingredient.safetyLevel?.toLowerCase().includes("safe") ? "default" : "secondary"} className="text-xs">{ingredient.safetyLevel || "N/A"}</Badge></p>
+                    <p><strong className="font-semibold text-primary/90">Health Effects ({report.detectedRegion || "Local"} Context):</strong> <span className="text-foreground/80">{ingredient.healthEffects || "N/A"}</span></p>
+                    <p><strong className="font-semibold text-primary/90">Safety/Concern Level:</strong> <Badge variant={ingredient.safetyLevel?.toLowerCase().includes("safe") ? "default" : ingredient.safetyLevel?.toLowerCase().includes("limit") || ingredient.safetyLevel?.toLowerCase().includes(" debated") ? "secondary" : "destructive"} className="text-xs">{ingredient.safetyLevel || "N/A"}</Badge></p>
                     {ingredient.regionalNotes && (
                       <p className="italic"><strong className="font-semibold text-accent">Regional Note:</strong> {ingredient.regionalNotes}</p>
                     )}
@@ -202,6 +247,7 @@ export function HealthReportDisplay({ report, productIdentifier }: HealthReportD
                         <RegionalVariantIcon indicator={variation.variantIndicator} />
                         Variation: {variation.region}
                          {variation.variantIndicator === "CLEANER_VARIANT" && <Badge variant="default" className="ml-2 bg-green-500 text-white">Regulated Safer</Badge>}
+                         {variation.variantIndicator === "POTENTIALLY_RISKIER_VARIANT" && <Badge variant="destructive" className="ml-2">Potentially Riskier</Badge>}
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="px-4 pb-4 text-sm">
@@ -272,7 +318,9 @@ export function HealthReportDisplay({ report, productIdentifier }: HealthReportD
             <FlaskConical className="h-5 w-5" />
             Preservatives & Additives ({report.detectedRegion || "General"})
           </h2>
-          <p className="text-foreground/90 leading-relaxed whitespace-pre-wrap">{report.preservativesAndAdditivesAnalysis || "No specific analysis on preservatives and additives provided."}</p>
+           <ScrollArea className="h-40 md:h-48 p-4 border rounded-md bg-background shadow-inner">
+            <p className="text-foreground/80 leading-relaxed whitespace-pre-wrap">{report.preservativesAndAdditivesAnalysis || "No specific analysis on preservatives and additives provided."}</p>
+          </ScrollArea>
         </section>
         
         <Separator />
@@ -364,5 +412,3 @@ export function HealthReportDisplay({ report, productIdentifier }: HealthReportD
     </Card>
   );
 }
-
-    

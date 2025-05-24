@@ -45,7 +45,7 @@ const HealthAnalysisOutputSchema = z.object({
   detectedRegion: z.string().optional().describe('The region/country for which this specific product formulation is most likely intended or was identified (e.g., "India", "EU", "US"). If input is generic, this might be an assumed region based on common formulations (e.g., "Typical Indian variant").'),
   ingredientAnalysis: z.array(IngredientDetailSchema).describe('A detailed one-by-one analysis of each significant ingredient identified or typically found in the product. If based on a product name, list ingredients common to that type of product for the detected/assumed region.'),
   packagingAnalysis: z.string().describe('Analysis of potential health impacts related to the product\'s typical or known packaging materials for the detected/assumed region (e.g., PET bottles leaching chemicals under heat in Indian storage conditions).'),
-  preservativesAndAdditivesAnalysis: z.string().describe('Specific analysis of common preservatives and additives identified or typically found in the product for the detected/assumed region, and their health implications.'),
+  preservativesAndAdditivesAnalysis: z.string().describe('Specific analysis of common preservatives and additives identified or typically found in the product for the detected/assumed region, and their health implications. Mention specific additive names (e.g., "Sodium Benzoate (E211)", "Aspartame (E951)") and discuss their role, potential side effects, and regulatory status in the detected region vs. others like EU/US. Address concerns about specific E-numbers if identifiable.'),
   breakdown: z.string().describe('An overall nutritional profile and general commentary on the types of ingredients present for the detected/assumed region. This complements the detailed ingredient-by-ingredient analysis.'),
   regulatoryStatus: z
     .string()
@@ -59,6 +59,7 @@ const HealthAnalysisOutputSchema = z.object({
   healthierAlternatives: z.array(z.string()).optional().describe('A list of 2-4 actionable, locally relevant healthier alternatives to the analyzed product. E.g., "Fresh lime soda (homemade)", "Plain soda with lemon".'),
   corporatePracticesNote: z.string().optional().describe('A brief note on corporate double standards if applicable, e.g., "Global brands like [Brand Name] sometimes use cheaper, lower-grade additives in regions like India to reduce costs, while their products in the EU/US may use higher-quality ingredients due to stricter laws."'),
   consumerRightsTip: z.string().optional().describe('A helpful tip for consumers in the detected region. For India, default to: "Did you know? You can file complaints with FSSAI if product labeling is misleading or incomplete. Visit: https://foodlicensing.fssai.gov.in/cmsweb/Complaints.aspx"'),
+  estimatedNutriScore: z.enum(["A", "B", "C", "D", "E"]).optional().describe('An estimated Nutri-Score like rating (A-E) based on the qualitative analysis of ingredients, overall product type, and likely nutritional profile. This is an approximation, not a precise calculation from quantitative nutritional data. Explain the basis of this estimation briefly within the overall breakdown or summary.'),
 });
 export type HealthAnalysisOutput = z.infer<typeof HealthAnalysisOutputSchema>;
 
@@ -79,53 +80,65 @@ Primary Task: Analyze the provided product information and generate a thorough h
 
 **CRITICAL INSTRUCTIONS FOR INDIAN AUDIENCE FOCUS:**
 
-1.  **User-Focused Summary ('summary')**:
+1.  **User-Focused Summary (\`summary\`)**:
     *   LANGUAGE: Use simple, direct language. Translate scientific terms into plain talk.
     *   IMMEDIACY: Connect directly with everyday consumption. E.g., "In India, Coca-Cola contains very high sugar – about 5-6 teaspoons per can – plus chemical additives that can impact your health over time."
     *   REGIONAL COMPARISON (EARLY): If analyzing a global brand, immediately highlight differences if the Indian version is inferior. E.g., "While these ingredients are technically allowed by Indian food laws (FSSAI), many are discouraged or banned in countries like Europe due to health concerns."
 
-2.  **Determine Product Region ('detectedRegion')**:
+2.  **Determine Product Region (\`detectedRegion\`)**:
     *   Attempt to determine the 'detectedRegion'. If 'productInfo' contains an explicit region (e.g., "Coca-Cola India"), use that.
     *   If an image is provided, look for regional cues (language, FSSAI marks for India).
     *   If only a product name is given (e.g., "Maggi Noodles"), **assume the 'detectedRegion' is "India" by default if userRegionHint is India or not provided, or based on common knowledge for that product in India.** Clearly state this assumption in your analysis reasoning if not explicitly given.
     *   All subsequent analysis (ingredients, regulations, etc.) should be relevant to this 'detectedRegion'.
 
-3.  **Ingredient-by-Ingredient Analysis ('ingredientAnalysis')**:
+3.  **Ingredient-by-Ingredient Analysis (\`ingredientAnalysis\`)**:
     *   For each ingredient:
-        *   \\\`name\\\`, \\\`description\\\` (purpose in product).
-        *   \\\`healthEffects\\\`: **Crucially, link to common Indian health issues.** E.g., for Sugar: "Increases risk of diabetes (India has over 100 million people with or at risk of diabetes) and obesity." For Phosphoric Acid: "May weaken bones over time, a concern for older adults and women in India."
-        *   \\\`safetyLevel\\\`: Be specific. E.g., "High Sugar Content", "Potential Carcinogen", "Generally Safe".
-        *   \\\`regionalNotes\\\`: **This is VITAL.** Clearly state if an ingredient is "Allowed in India, but banned/restricted in EU/US due to [specific reasons like cancer risk, neurotoxicity, etc.]." Example: "Caramel Color IV: Allowed in India. Linked to 4-MEI, a possible cancer risk. Its use is restricted or replaced with natural alternatives in EU/US."
-        *   \\\`ingredientRiskFlag\\\`: Set to "REGIONAL_CONCERN" if particularly problematic in the Indian formulation compared to others.
-        *   \\\`specificConcerns\\\`: Populate with short, impactful phrases for UI flags. E.g., ["High Sugar", "Contains 4-MEI (possible cancer risk)", "Artificial Sweetener (Aspartame)"].
+        *   \`name\`, \`description\` (purpose in product).
+        *   \`healthEffects\`: **Crucially, link to common Indian health issues.** E.g., for Sugar: "Increases risk of diabetes (India has over 100 million people with or at risk of diabetes) and obesity." For Phosphoric Acid: "May weaken bones over time, a concern for older adults and women in India."
+        *   \`safetyLevel\`: Be specific. E.g., "High Sugar Content", "Potential Carcinogen", "Generally Safe".
+        *   \`regionalNotes\`: **This is VITAL.** Clearly state if an ingredient is "Allowed in India, but banned/restricted in EU/US due to [specific reasons like cancer risk, neurotoxicity, etc.]." Example: "Caramel Color IV: Allowed in India. Linked to 4-MEI, a possible cancer risk. Its use is restricted or replaced with natural alternatives in EU/US."
+        *   \`ingredientRiskFlag\`: Set to "REGIONAL_CONCERN" if particularly problematic in the Indian formulation compared to others.
+        *   \`specificConcerns\`: Populate with short, impactful phrases for UI flags. E.g., ["High Sugar", "Contains 4-MEI (possible cancer risk)", "Artificial Sweetener (Aspartame)"].
 
-4.  **Regional Variations ('regionalVariations')**:
+4.  **Preservatives and Additives Analysis (\`preservativesAndAdditivesAnalysis\`)**:
+    *   Provide a DETAILED breakdown of common preservatives and additives.
+    *   Identify them by name and E-number if possible (e.g., "Sodium Benzoate (E211)").
+    *   Discuss their purpose, potential health impacts (especially those debated or with concerns in the Indian context), and regulatory status differences between India and stricter regions (EU/US).
+    *   If the input is generic (e.g., product name), list common additives found in that product category for the 'detectedRegion'.
+
+5.  **Regional Variations (\`regionalVariations\`)**:
     *   For global brands, actively research and report on known variations in major regions like EU, US, UK.
     *   Compare them to the product from 'detectedRegion'. If analyzing an Indian product, highlight if EU/US versions are "CLEANER_VARIANT".
     *   Use "+ " for positive changes and "- " for negative/absent controversial ingredients relative to the primary product.
 
-5.  **Packaging Analysis ('packagingAnalysis')**:
+6.  **Packaging Analysis (\`packagingAnalysis\`)**:
     *   Focus on 'detectedRegion'. E.g., For India: "Many products use PET plastic bottles. Under Indian heat and storage conditions, there's a concern these plastics might leach small amounts of chemicals into the food/drink over time."
 
-6.  **Overall Risk Score & Level ('overallRiskScore', 'overallRiskLevel')**:
+7.  **Overall Risk Score & Level (\`overallRiskScore\`, \`overallRiskLevel\`)**:
     *   Derive a numeric score (1-5, 1=low concern, 5=high concern) and a qualitative level ("Low Concern", "Moderate Concern", "High Concern").
     *   Base this on: severity of ingredient concerns (especially those flagged for India), number of controversial additives, comparison to cleaner international variants, and sugar/salt/fat levels if discernible.
     *   Example: A product with high sugar, multiple controversial additives common in India but banned elsewhere, and a "POTENTIALLY_RISKIER_VARIANT" status compared to EU might get a 4/5 ("High Concern").
 
-7.  **Healthier Alternatives ('healthierAlternatives')**:
+8.  **Estimated Nutri-Score (\`estimatedNutriScore\`)**:
+    *   Based on your overall qualitative analysis of ingredients (sugar content, presence of beneficial vs. harmful ingredients, product type), provide an *estimated* Nutri-Score like letter grade (A, B, C, D, E).
+    *   'A' indicates a healthier choice, 'E' a less healthy one.
+    *   **This is an estimation.** Since you don't have quantitative nutritional data (grams of sugar, fat, etc.), clearly state that this is an approximation in the 'breakdown' or 'summary' section (e.g., "Based on its ingredients, we estimate this product would likely receive a Nutri-Score of C. This is an approximation as full nutritional data is not available for precise calculation.").
+    *   If the product is clearly very unhealthy (e.g., sugary drink with many additives), it should be D or E. If it's relatively clean (e.g., plain yogurt), it might be A or B.
+
+9.  **Healthier Alternatives (\`healthierAlternatives\`)**:
     *   Suggest 2-4 PRACTICAL and LOCALLY AVAILABLE alternatives in India. E.g., "Fresh lime soda (nimbu pani)", "Plain Lassi", "Coconut Water", "Branded options with lower sugar if known".
 
-8.  **Corporate Practices Note ('corporatePracticesNote')**:
+10. **Corporate Practices Note (\`corporatePracticesNote\`)**:
     *   If applicable for global brands, include a statement like: "It's common for some multinational companies to use cheaper or lower-grade ingredients in countries like India, while their products sold in regions with stricter laws (like the EU or US) use higher-quality or safer alternatives. This is often a cost-saving measure."
 
-9.  **Consumer Rights Tip ('consumerRightsTip')**:
+11. **Consumer Rights Tip (\`consumerRightsTip\`)**:
     *   For India (or detectedRegion if different and known), provide a relevant tip.
     *   **Default for India:** "Did you know? As a consumer in India, you can file complaints with the Food Safety and Standards Authority of India (FSSAI) if you find product labeling to be misleading or incomplete. Visit their portal: https://foodlicensing.fssai.gov.in/cmsweb/Complaints.aspx"
 
-10. **Confidence Score ('confidenceScore')**:
+12. **Confidence Score (\`confidenceScore\`)**:
     *   Maintain existing logic but ensure reasoning reflects that analysis of a product name is for a *typical regional variant*.
 
-11. **Sources**: Prioritize FSSAI, Indian consumer reports, Open Food Facts (India), alongside global databases.
+13. **Sources**: Prioritize FSSAI, Indian consumer reports, Open Food Facts (India), alongside global databases.
 
 Tone: Empathetic, empowering, informative, and direct. Highlight discrepancies to build trust.
 
@@ -175,12 +188,12 @@ const generateHealthAnalysisFlow = ai.defineFlow(
              detectedRegion: output.detectedRegion || 'Unknown',
              regionalVariations: output.regionalVariations || [],
              overallWarning: output.overallWarning || undefined,
-             // Populate new fields with defaults in case of partial failure
              overallRiskScore: output.overallRiskScore,
              overallRiskLevel: output.overallRiskLevel,
              healthierAlternatives: output.healthierAlternatives,
              corporatePracticesNote: output.corporatePracticesNote,
              consumerRightsTip: output.consumerRightsTip || "Consumer rights information could not be loaded.",
+             estimatedNutriScore: output.estimatedNutriScore,
            };
          }
       }
@@ -212,9 +225,8 @@ const generateHealthAnalysisFlow = ai.defineFlow(
         healthierAlternatives: [],
         corporatePracticesNote: 'Not available due to error.',
         consumerRightsTip: 'Not available due to error.',
+        estimatedNutriScore: undefined,
       };
     }
   }
 );
-
-    
