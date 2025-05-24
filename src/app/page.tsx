@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react'; // Added useRef
 import { Logo } from '@/components/logo';
 import { QueryForm } from '@/components/query-form';
 import { SearchResultsDisplay } from '@/components/search-results-display';
@@ -25,12 +26,13 @@ const fileToBase64 = (file: File): Promise<string> => {
 
 export default function NutriSleuthPage() {
   const [isLoading, setIsLoading] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false); // Specific for analysis after search
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
   const [searchResults, setSearchResults] = useState<SemanticProductSearchOutput['searchResults'] | null>(null);
   const [selectedProductForAnalysis, setSelectedProductForAnalysis] = useState<string | null>(null);
   const [healthAnalysis, setHealthAnalysis] = useState<HealthAnalysisOutput | null>(null);
+  const [userRegionHint, setUserRegionHint] = useState<string>("India"); // Default to India, can be made dynamic later
 
   const { toast } = useToast();
 
@@ -40,6 +42,21 @@ export default function NutriSleuthPage() {
     setHealthAnalysis(null);
     setSelectedProductForAnalysis(null);
   }
+
+  // Basic way to get a region hint, could be expanded (e.g. geolocation API)
+  useEffect(() => {
+    try {
+      const timezoneRegion = Intl.DateTimeFormat().resolvedOptions().timeZone.split('/')[0];
+      if (timezoneRegion?.toLowerCase() === "kolkata" || timezoneRegion?.toLowerCase() === "calcutta") { // Example, this is not robust
+        setUserRegionHint("India");
+      } else if (timezoneRegion) {
+        // setUserRegionHint(timezoneRegion); // Or a mapping
+      }
+    } catch (e) {
+      // console.warn("Could not determine user region hint from timezone.");
+    }
+  }, []);
+
 
   const handleSearchOrAnalyze = async (data: string | File, type: InputType) => {
     resetState();
@@ -59,7 +76,7 @@ export default function NutriSleuthPage() {
       } finally {
         setIsLoading(false);
       }
-    } else { // Barcode, Ingredients, Image
+    } else { 
       setIsLoading(true);
       let productInfoValue: string;
       if (type === "image" && data instanceof File) {
@@ -75,7 +92,10 @@ export default function NutriSleuthPage() {
         productInfoValue = data as string;
       }
       
-      const analysisInput: HealthAnalysisInput = { productInfo: productInfoValue };
+      const analysisInput: HealthAnalysisInput = { 
+        productInfo: productInfoValue,
+        userRegionHint: userRegionHint 
+      };
       try {
         const analysis = await generateHealthAnalysis(analysisInput);
         setHealthAnalysis(analysis);
@@ -91,11 +111,14 @@ export default function NutriSleuthPage() {
   };
 
   const handleProductSelectForAnalysis = async (productName: string) => {
-    resetState(); // Clear previous results, including search list
+    resetState(); 
     setIsAnalyzing(true);
     setSelectedProductForAnalysis(productName);
     
-    const analysisInput: HealthAnalysisInput = { productInfo: productName };
+    const analysisInput: HealthAnalysisInput = { 
+      productInfo: productName,
+      userRegionHint: userRegionHint
+    };
     try {
       const analysis = await generateHealthAnalysis(analysisInput);
       setHealthAnalysis(analysis);
@@ -138,10 +161,10 @@ export default function NutriSleuthPage() {
            </Alert>
         )}
 
-        {isLoading && !isAnalyzing && ( // General loading for initial search/analysis
+        {isLoading && !isAnalyzing && ( 
           <div className="flex justify-center items-center mt-6 p-8 bg-card rounded-lg shadow">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="ml-3 text-lg text-muted-foreground">Searching for products...</p>
+            <p className="ml-3 text-lg text-muted-foreground">Searching or Analyzing...</p>
           </div>
         )}
         
@@ -154,7 +177,7 @@ export default function NutriSleuthPage() {
           />
         )}
 
-        {isAnalyzing && !healthAnalysis && ( // Loading for analysis after product selection
+        {isAnalyzing && !healthAnalysis && ( 
            <div className="flex justify-center items-center mt-6 p-8 bg-card rounded-lg shadow">
              <Loader2 className="h-8 w-8 animate-spin text-primary" />
              <p className="ml-3 text-lg text-muted-foreground">Analyzing {selectedProductForAnalysis || "product"}...</p>
@@ -162,13 +185,16 @@ export default function NutriSleuthPage() {
         )}
 
         {healthAnalysis && (
-          <HealthReportDisplay report={healthAnalysis} productIdentifier={selectedProductForAnalysis || undefined} />
+          <HealthReportDisplay report={healthAnalysis} productIdentifier={selectedProductForAnalysis || healthAnalysis.detectedRegion || undefined} />
         )}
       </main>
 
       <footer className="w-full max-w-3xl mt-12 pt-8 border-t border-border text-center">
         <p className="text-sm text-muted-foreground">
           NutriSleuth &copy; {new Date().getFullYear()}. For informational purposes only. Not medical advice.
+        </p>
+        <p className="text-xs text-muted-foreground/70 mt-1">
+          User region hint: {userRegionHint || "Not set (defaulting to India focus)"}. Product analyses are AI-generated and may require verification.
         </p>
       </footer>
     </div>
