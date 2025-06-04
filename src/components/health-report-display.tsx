@@ -11,7 +11,7 @@ import {
   ThumbsUp, Info, BookOpen, AlertCircle, CheckCircle, BarChart3, ClipboardList, 
   PackageSearch, FlaskConical, Microscope, MapPin, Globe, AlertTriangle, 
   ShieldCheck, Shuffle, AlertOctagon, PlusCircle, MinusCircle, ArrowRightCircle,
-  HeartPulse, Users, ShieldAlert, Lightbulb, Scale, ThumbsDown, FileText, Star // Added Star
+  HeartPulse, Users, ShieldAlert, Lightbulb, Scale, ThumbsDown, FileText, Star
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -65,7 +65,7 @@ const NUTRIGRADE_DESCRIPTIONS: Record<string, string> = {
 
 const NUTRIGRADE_TEXT_COLORS: Record<string, string> = {
   A: "text-green-700 dark:text-green-400",
-  B: "text-lime-600 dark:text-lime-400", // Using lime for B for differentiation
+  B: "text-lime-600 dark:text-lime-400", 
   C: "text-yellow-600 dark:text-yellow-400",
   D: "text-orange-600 dark:text-orange-400",
   E: "text-red-700 dark:text-red-400",
@@ -84,15 +84,15 @@ const EstimatedNutriScoreDisplay: React.FC<{ score: "A" | "B" | "C" | "D" | "E" 
           className={cn(
             "font-mono font-semibold px-0.5",
             gradeLetter === score
-              ? `${activeColorClass} text-2xl`
-              : "text-muted-foreground/60 dark:text-muted-foreground/50 text-xl"
+              ? `${activeColorClass} text-xl sm:text-2xl`
+              : "text-muted-foreground/60 dark:text-muted-foreground/50 text-lg sm:text-xl"
           )}
         >
           {gradeLetter === score ? gradeLetter.toUpperCase() : gradeLetter.toLowerCase()}
         </span>
       ))}
       {description && (
-         <span className={cn("ml-2 text-base italic", activeColorClass)}>- {description}</span>
+         <span className={cn("ml-2 text-sm sm:text-base italic", activeColorClass)}>- {description}</span>
       )}
     </p>
   );
@@ -203,7 +203,7 @@ export function HealthReportDisplay({ report, productIdentifier }: HealthReportD
             <Separator />
             <section aria-labelledby="nutri-score-section">
               <h2 id="nutri-score-section" className="text-xl font-semibold flex items-center gap-2 mb-2 text-primary">
-                <Star className="h-5 w-5 text-yellow-400" /> {/* Changed icon */}
+                <Star className="h-5 w-5 text-yellow-400" />
                 Estimated Nutri-Score
               </h2>
               <EstimatedNutriScoreDisplay score={report.estimatedNutriScore} />
@@ -226,7 +226,7 @@ export function HealthReportDisplay({ report, productIdentifier }: HealthReportD
               {report.ingredientAnalysis.map((ingredient, index) => (
                 <AccordionItem value={`item-${index}`} key={index} className="border-border">
                   <AccordionTrigger className="hover:no-underline text-left">
-                    <div className="flex items-center gap-2 flex-wrap"> {/* Added flex-wrap */}
+                    <div className="flex items-center gap-2 flex-wrap">
                        {ingredient.specificConcerns && ingredient.specificConcerns.length > 0 && ingredient.specificConcerns.map(concern => <SpecificConcernIcon key={concern} concern={concern} />)}
                       <span className="font-medium">{ingredient.name || "Unnamed Ingredient"}</span>
                       <IngredientRiskIcon flag={ingredient.ingredientRiskFlag} />
@@ -434,3 +434,5 @@ export function HealthReportDisplay({ report, productIdentifier }: HealthReportD
     </Card>
   );
 }
+
+    
