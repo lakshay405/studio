@@ -10,7 +10,7 @@ import { semanticProductSearch, SemanticProductSearchOutput } from '@/ai/flows/s
 import { generateHealthAnalysis, HealthAnalysisOutput, HealthAnalysisInput } from '@/ai/flows/generate-health-analysis';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2, Cpu } from "lucide-react";
 import { Card, CardContent } from '@/components/ui/card';
 
 type InputType = "name" | "barcode" | "ingredients" | "image";
@@ -33,21 +33,19 @@ export default function NutriSleuthPage() {
   const [selectedProductForAnalysis, setSelectedProductForAnalysis] = useState<string | null>(null);
   const [healthAnalysis, setHealthAnalysis] = useState<HealthAnalysisOutput | null>(null);
   const [userRegionHint, setUserRegionHint] = useState<string>("India"); // Default to India, can be made dynamic later
+  const [isOllamaMode, setIsOllamaMode] = useState(false);
+
 
   const { toast } = useToast();
 
-  const resetState = () => {
-    setErrorMessage(null);
-    setSearchResults(null);
-    setHealthAnalysis(null);
-    setSelectedProductForAnalysis(null);
-  }
-
-  // Basic way to get a region hint, could be expanded (e.g. geolocation API)
   useEffect(() => {
+    // Check environment variable on the client-side
+    // NEXT_PUBLIC_ prefixed variables are exposed to the browser
+    setIsOllamaMode(process.env.NEXT_PUBLIC_USE_OLLAMA_LOCALLY === 'true');
     try {
+      // Basic way to get a region hint, could be expanded (e.g. geolocation API)
       const timezoneRegion = Intl.DateTimeFormat().resolvedOptions().timeZone.split('/')[0];
-      if (timezoneRegion?.toLowerCase() === "kolkata" || timezoneRegion?.toLowerCase() === "calcutta") { // Example, this is not robust
+      if (timezoneRegion?.toLowerCase().includes("kolkata") || timezoneRegion?.toLowerCase().includes("calcutta")) { // Example, this is not robust
         setUserRegionHint("India");
       } else if (timezoneRegion) {
         // setUserRegionHint(timezoneRegion); // Or a mapping
@@ -57,6 +55,13 @@ export default function NutriSleuthPage() {
     }
   }, []);
 
+
+  const resetState = () => {
+    setErrorMessage(null);
+    setSearchResults(null);
+    setHealthAnalysis(null);
+    setSelectedProductForAnalysis(null);
+  }
 
   const handleSearchOrAnalyze = async (data: string | File, type: InputType) => {
     resetState();
@@ -68,16 +73,20 @@ export default function NutriSleuthPage() {
         setSearchResults(result.searchResults);
         if (!result.searchResults || result.searchResults.length === 0) {
           setErrorMessage("No products found for your search term. Please try a different name.");
+        } else if (result.searchResults.some(sr => sr.startsWith("Search failed:"))) {
+          setErrorMessage(result.searchResults.find(sr => sr.startsWith("Search failed:")) || "Product search failed.");
+          setSearchResults(null);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Semantic search error:", error);
-        setErrorMessage("Failed to search for products. Please try again.");
-        toast({ variant: "destructive", title: "Search Error", description: "Could not perform product search." });
+        const displayError = error.message || "Failed to search for products. Please try again.";
+        setErrorMessage(displayError);
+        toast({ variant: "destructive", title: "Search Error", description: displayError });
       } finally {
         setIsLoading(false);
       }
     } else { 
-      setIsLoading(true);
+      setIsLoading(true); // Changed to setIsLoading for direct analysis
       let productInfoValue: string;
       if (type === "image" && data instanceof File) {
         try {
@@ -92,20 +101,26 @@ export default function NutriSleuthPage() {
         productInfoValue = data as string;
       }
       
+      setSelectedProductForAnalysis(type === 'barcode' ? `Barcode: ${data}` : type === 'ingredients' ? 'Custom Ingredients' : 'Uploaded Image');
       const analysisInput: HealthAnalysisInput = { 
         productInfo: productInfoValue,
         userRegionHint: userRegionHint 
       };
       try {
         const analysis = await generateHealthAnalysis(analysisInput);
-        setHealthAnalysis(analysis);
-        setSelectedProductForAnalysis(type === 'barcode' ? `Barcode: ${data}` : type === 'ingredients' ? 'Custom Ingredients' : 'Uploaded Image');
-      } catch (error) {
+        if (analysis.summary.startsWith("Health analysis encountered an error:")) {
+            setErrorMessage(analysis.summary);
+            setHealthAnalysis(null);
+        } else {
+            setHealthAnalysis(analysis);
+        }
+      } catch (error: any) {
         console.error("Health analysis error:", error);
-        setErrorMessage("Failed to generate health analysis. The AI model might be unavailable or the input is invalid.");
-        toast({ variant: "destructive", title: "Analysis Error", description: "Could not generate health report." });
+        const displayError = error.message || "Failed to generate health analysis. The AI model might be unavailable or the input is invalid.";
+        setErrorMessage(displayError);
+        toast({ variant: "destructive", title: "Analysis Error", description: displayError });
       } finally {
-        setIsLoading(false);
+        setIsLoading(false); // Changed to setIsLoading
       }
     }
   };
@@ -121,10 +136,16 @@ export default function NutriSleuthPage() {
     };
     try {
       const analysis = await generateHealthAnalysis(analysisInput);
-      setHealthAnalysis(analysis);
-    } catch (error) {
+      if (analysis.summary.startsWith("Health analysis encountered an error:")) {
+        setErrorMessage(analysis.summary);
+        setHealthAnalysis(null);
+      } else {
+        setHealthAnalysis(analysis);
+      }
+    } catch (error: any) {
       console.error("Health analysis error (from selection):", error);
-      setErrorMessage(`Failed to analyze "${productName}". Please try again or select another product.`);
+      const displayError = error.message || `Failed to analyze "${productName}". Please try again or select another product.`;
+      setErrorMessage(displayError);
       toast({ variant: "destructive", title: "Analysis Error", description: `Could not analyze ${productName}.` });
     } finally {
       setIsAnalyzing(false);
@@ -148,7 +169,7 @@ export default function NutriSleuthPage() {
             <QueryForm
               isLoading={isLoading || isAnalyzing}
               onSearchOrAnalyze={handleSearchOrAnalyze}
-              currentError={errorMessage}
+              currentError={errorMessage} // Pass error message to QueryForm if needed, or handle here
             />
           </CardContent>
         </Card>
@@ -161,7 +182,7 @@ export default function NutriSleuthPage() {
            </Alert>
         )}
 
-        {isLoading && !isAnalyzing && ( 
+        {(isLoading && !isAnalyzing) && ( 
           <div className="flex justify-center items-center mt-6 p-8 bg-card rounded-lg shadow">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <p className="ml-3 text-lg text-muted-foreground">Searching or Analyzing...</p>
@@ -194,7 +215,15 @@ export default function NutriSleuthPage() {
           NutriSleuth &copy; {new Date().getFullYear()}. For informational purposes only. Not medical advice.
         </p>
         <p className="text-xs text-muted-foreground/70 mt-1">
-          User region hint: {userRegionHint || "Not set (defaulting to India focus)"}. Product analyses are AI-generated and may require verification.
+          User region hint: {userRegionHint || "Not set (defaulting to India focus)"}.
+          {isOllamaMode && (
+            <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+              <Cpu size={12} /> Local LLM Active
+            </span>
+          )}
+        </p>
+         <p className="text-xs text-muted-foreground/70 mt-1">
+          Product analyses are AI-generated and may require verification.
         </p>
       </footer>
     </div>
