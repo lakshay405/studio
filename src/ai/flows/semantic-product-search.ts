@@ -27,6 +27,7 @@ const SemanticProductSearchOutputSchema = z.object({
 export type SemanticProductSearchOutput = z.infer<typeof SemanticProductSearchOutputSchema>;
 
 export async function semanticProductSearch(input: SemanticProductSearchInput): Promise<SemanticProductSearchOutput> {
+  console.log(`[semanticProductSearchFlow] Initiating product search. Provider: ${input.aiServiceProvider}, Ollama Model: ${input.ollamaModelName || 'N/A'}`);
   return semanticProductSearchFlow(input);
 }
 
@@ -40,7 +41,7 @@ const genkitSearchPromptDefinition = ai.definePrompt({
   name: 'semanticProductSearchPrompt',
   input: {schema: SemanticProductSearchInputSchema.pick({productName: true})}, 
   output: {schema: SemanticProductSearchOutputSchema},
-  prompt: baseSearchPromptTemplate, // Base template, might need adjustments for some models to enforce JSON
+  prompt: baseSearchPromptTemplate, 
 });
 
 
@@ -71,7 +72,6 @@ const semanticProductSearchFlow = ai.defineFlow(
         modelIdentifier = ollamaModelName || 'qwen3:8b'; // Default Ollama model
         console.log(`Using Ollama (${modelIdentifier}) for semantic product search...`);
         const ollamaPromptText = fillSearchPromptTemplate(baseSearchPromptTemplate, promptData);
-        // The base prompt already strongly requests JSON, so no need to append further instructions here.
         
         const ollamaPayload = {
           model: modelIdentifier, 
@@ -149,3 +149,5 @@ const semanticProductSearchFlow = ai.defineFlow(
     }
   }
 );
+
+    

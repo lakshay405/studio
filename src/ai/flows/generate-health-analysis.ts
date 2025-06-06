@@ -66,6 +66,7 @@ const HealthAnalysisOutputSchema = z.object({
 export type HealthAnalysisOutput = z.infer<typeof HealthAnalysisOutputSchema>;
 
 export async function generateHealthAnalysis(input: HealthAnalysisInput): Promise<HealthAnalysisOutput> {
+  console.log(`[generateHealthAnalysisFlow] Initiating health analysis. Provider: ${input.aiServiceProvider}, Ollama Model: ${input.ollamaModelName || 'N/A'}`);
   return generateHealthAnalysisFlow(input);
 }
 
@@ -191,7 +192,7 @@ const generateHealthAnalysisFlow = ai.defineFlow(
         console.log(`Using ${serviceName} for health analysis...`);
         const ollamaPromptText = fillPromptTemplate(basePromptTemplate, promptData);
         // Append JSON enforcement for Ollama more explicitly
-        const finalOllamaPrompt = ollamaPromptText + "\\n\\nIMPORTANT: Your entire response MUST be a single, valid JSON object matching the HealthAnalysisOutputSchema structure described in the initial instructions. Do not include any explanatory text, comments, or markdown formatting like \`\`\`json ... \`\`\` before or after the JSON object itself.";
+        const finalOllamaPrompt = ollamaPromptText + "\n\nIMPORTANT: Your entire response MUST be a single, valid JSON object matching the HealthAnalysisOutputSchema structure described in the initial instructions. Do not include any explanatory text, comments, or markdown formatting like \`\`\`json ... \`\`\` before or after the JSON object itself.";
         
         const ollamaPayload = {
           model: modelIdentifier, // Use the determined model name
@@ -345,7 +346,5 @@ const generateHealthAnalysisFlow = ai.defineFlow(
     }
   }
 );
-
-    
 
     
