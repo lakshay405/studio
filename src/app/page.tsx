@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Logo } from '@/components/logo';
 import { QueryForm } from '@/components/query-form';
 import { SearchResultsDisplay } from '@/components/search-results-display';
@@ -10,9 +10,9 @@ import { semanticProductSearch, SemanticProductSearchOutput, SemanticProductSear
 import { generateHealthAnalysis, HealthAnalysisOutput, HealthAnalysisInput } from '@/ai/flows/generate-health-analysis';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertTriangle, Loader2 } from "lucide-react"; // Removed Cpu from here
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { Card, CardContent } from '@/components/ui/card';
-import { AIServiceSelector, type AIService } from '@/components/ai-service-selector'; // Added AIServiceSelector
+import { AIServiceSelector, type AIServiceProvider } from '@/components/ai-service-selector';
 
 type InputType = "name" | "barcode" | "ingredients" | "image";
 
@@ -35,21 +35,24 @@ export default function NutriSleuthPage() {
   const [healthAnalysis, setHealthAnalysis] = useState<HealthAnalysisOutput | null>(null);
   const [userRegionHint, setUserRegionHint] = useState<string>("India"); 
   
-  const [selectedAIService, setSelectedAIService] = useState<AIService>(
+  const [selectedProvider, setSelectedProvider] = useState<AIServiceProvider>(
     process.env.NEXT_PUBLIC_USE_OLLAMA_LOCALLY === 'true' ? 'ollama' : 'gemini'
   );
-  // Default model names, can be made dynamic if needed
-  const geminiModelName = "gemini-2.0-flash"; 
-  const ollamaModelName = "qwen3:8b";
+  const [ollamaModelName, setOllamaModelName] = useState<string>("qwen3:8b");
 
 
   const { toast } = useToast();
 
   useEffect(() => {
     try {
-      const timezoneRegion = Intl.DateTimeFormat().resolvedOptions().timeZone.split('/')[0];
-      if (timezoneRegion?.toLowerCase().includes("kolkata") || timezoneRegion?.toLowerCase().includes("calcutta")) {
+      // Basic region detection, could be improved with a library or more robust logic
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (timezone?.toLowerCase().includes("kolkata") || timezone?.toLowerCase().includes("calcutta") || timezone?.toLowerCase().includes("india")) {
         setUserRegionHint("India");
+      } else if (timezone?.toLowerCase().includes("america")) {
+        setUserRegionHint("US");
+      } else if (timezone?.toLowerCase().includes("europe")) {
+        setUserRegionHint("EU");
       }
     } catch (e) {
       // console.warn("Could not determine user region hint from timezone.");
@@ -71,15 +74,16 @@ export default function NutriSleuthPage() {
       setIsLoading(true);
       const searchInput: SemanticProductSearchInput = {
         productName: data as string,
-        aiService: selectedAIService,
+        aiServiceProvider: selectedProvider,
+        ollamaModelName: selectedProvider === "ollama" ? ollamaModelName : undefined,
       };
       try {
         const result = await semanticProductSearch(searchInput);
         setSearchResults(result.searchResults);
         if (!result.searchResults || result.searchResults.length === 0) {
           setErrorMessage("No products found for your search term. Please try a different name.");
-        } else if (result.searchResults.some(sr => sr.startsWith("Search failed:"))) {
-          setErrorMessage(result.searchResults.find(sr => sr.startsWith("Search failed:")) || "Product search failed.");
+        } else if (result.searchResults.some(sr => sr.startsWith("Search failed:") || sr.startsWith("AI service error:"))) {
+          setErrorMessage(result.searchResults.find(sr => sr.startsWith("Search failed:") || sr.startsWith("AI service error:")) || "Product search failed.");
           setSearchResults(null);
         }
       } catch (error: any) {
@@ -110,11 +114,12 @@ export default function NutriSleuthPage() {
       const analysisInput: HealthAnalysisInput = { 
         productInfo: productInfoValue,
         userRegionHint: userRegionHint,
-        aiService: selectedAIService,
+        aiServiceProvider: selectedProvider,
+        ollamaModelName: selectedProvider === "ollama" ? ollamaModelName : undefined,
       };
       try {
         const analysis = await generateHealthAnalysis(analysisInput);
-        if (analysis.summary.startsWith("Health analysis encountered an error:")) {
+        if (analysis.summary?.startsWith("Health analysis encountered an error:") || analysis.summary?.startsWith("AI service error:")) {
             setErrorMessage(analysis.summary);
             setHealthAnalysis(null);
         } else {
@@ -139,11 +144,12 @@ export default function NutriSleuthPage() {
     const analysisInput: HealthAnalysisInput = { 
       productInfo: productName,
       userRegionHint: userRegionHint,
-      aiService: selectedAIService,
+      aiServiceProvider: selectedProvider,
+      ollamaModelName: selectedProvider === "ollama" ? ollamaModelName : undefined,
     };
     try {
       const analysis = await generateHealthAnalysis(analysisInput);
-      if (analysis.summary.startsWith("Health analysis encountered an error:")) {
+      if (analysis.summary?.startsWith("Health analysis encountered an error:") || analysis.summary?.startsWith("AI service error:")) {
         setErrorMessage(analysis.summary);
         setHealthAnalysis(null);
       } else {
@@ -218,12 +224,12 @@ export default function NutriSleuthPage() {
       </main>
 
       <footer className="w-full max-w-3xl mt-12 pt-8 border-t border-border text-center">
-        <div className="mb-4">
+        <div className="mb-4 flex justify-center">
           <AIServiceSelector 
-            selectedService={selectedAIService}
-            setSelectedService={setSelectedAIService}
-            geminiModelName={geminiModelName}
+            selectedProvider={selectedProvider}
+            setSelectedProvider={setSelectedProvider}
             ollamaModelName={ollamaModelName}
+            setOllamaModelName={setOllamaModelName}
           />
         </div>
         <p className="text-sm text-muted-foreground">

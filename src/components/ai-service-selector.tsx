@@ -1,6 +1,7 @@
 
 "use client";
 
+import { useState, type Dispatch, type SetStateAction } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -11,69 +12,111 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Cpu, Server } from "lucide-react"; // Using Server for Gemini/Cloud
-import type { Dispatch, SetStateAction } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Cpu, Server, Bot, Brain, Info } from "lucide-react"; 
 
-export type AIService = "gemini" | "ollama";
+export type AIServiceProvider = "ollama" | "gemini" | "openai" | "anthropic";
 
 interface AIServiceSelectorProps {
-  selectedService: AIService;
-  setSelectedService: Dispatch<SetStateAction<AIService>>;
-  ollamaModelName?: string;
-  geminiModelName?: string;
+  selectedProvider: AIServiceProvider;
+  setSelectedProvider: Dispatch<SetStateAction<AIServiceProvider>>;
+  ollamaModelName: string;
+  setOllamaModelName: Dispatch<SetStateAction<string>>;
 }
 
+const providerDetails: Record<AIServiceProvider, { label: string; defaultModel: string; icon: JSX.Element, apiKeyEnvVar: string | null }> = {
+  ollama: { label: "Ollama (Local)", defaultModel: "qwen3:8b", icon: <Cpu className="h-4 w-4 mr-2" />, apiKeyEnvVar: null },
+  gemini: { label: "Google AI", defaultModel: "gemini-2.0-flash", icon: <Server className="h-4 w-4 mr-2" />, apiKeyEnvVar: "GOOGLE_API_KEY (or ADC)" },
+  openai: { label: "OpenAI", defaultModel: "gpt-3.5-turbo", icon: <Brain className="h-4 w-4 mr-2" />, apiKeyEnvVar: "OPENAI_API_KEY" },
+  anthropic: { label: "Anthropic", defaultModel: "claude-3-haiku-20240307", icon: <Bot className="h-4 w-4 mr-2" />, apiKeyEnvVar: "ANTHROPIC_API_KEY" },
+};
+
 export function AIServiceSelector({
-  selectedService,
-  setSelectedService,
-  ollamaModelName = "qwen3:8b",
-  geminiModelName = "gemini-2.0-flash",
+  selectedProvider,
+  setSelectedProvider,
+  ollamaModelName,
+  setOllamaModelName,
 }: AIServiceSelectorProps) {
-  const displayProps = {
-    gemini: {
-      label: "Google AI",
-      model: geminiModelName,
-      icon: <Server className="h-4 w-4 mr-2" />,
-    },
-    ollama: {
-      label: "Local LLM (Ollama)",
-      model: ollamaModelName,
-      icon: <Cpu className="h-4 w-4 mr-2" />,
-    },
+  const [tempOllamaModel, setTempOllamaModel] = useState(ollamaModelName);
+
+  const currentServiceDisplay = providerDetails[selectedProvider];
+  const displayModel = selectedProvider === "ollama" ? ollamaModelName : currentServiceDisplay.defaultModel;
+
+  const handleOllamaModelChange = () => {
+    setOllamaModelName(tempOllamaModel);
   };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="flex items-center text-xs">
-          {selectedService === "ollama" ? displayProps.ollama.icon : displayProps.gemini.icon}
-          <span className="mr-1">{selectedService === "ollama" ? displayProps.ollama.label : displayProps.gemini.label}:</span>
-          <span className="font-semibold truncate">{selectedService === "ollama" ? displayProps.ollama.model : displayProps.gemini.model}</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-64">
-        <DropdownMenuLabel>Choose AI Service</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuRadioGroup
-          value={selectedService}
-          onValueChange={(value) => setSelectedService(value as AIService)}
-        >
-          <DropdownMenuRadioItem value="gemini" className="flex items-center cursor-pointer">
-            {displayProps.gemini.icon}
-            <div>
-              <div>{displayProps.gemini.label}</div>
-              <div className="text-xs text-muted-foreground">{displayProps.gemini.model}</div>
+    <TooltipProvider>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className="flex items-center text-xs min-w-[200px] justify-between">
+            <div className="flex items-center">
+              {currentServiceDisplay.icon}
+              <span className="mr-1">{currentServiceDisplay.label}:</span>
             </div>
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="ollama" className="flex items-center cursor-pointer">
-           {displayProps.ollama.icon}
-            <div>
-              <div>{displayProps.ollama.label}</div>
-              <div className="text-xs text-muted-foreground">{displayProps.ollama.model}</div>
-            </div>
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+            <span className="font-semibold truncate max-w-[100px] sm:max-w-[150px]">{displayModel}</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-72" onCloseAutoFocus={(e) => e.preventDefault()}>
+          <DropdownMenuLabel>Choose AI Service Provider</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioGroup
+            value={selectedProvider}
+            onValueChange={(value) => setSelectedProvider(value as AIServiceProvider)}
+          >
+            {(Object.keys(providerDetails) as AIServiceProvider[]).map((providerKey) => {
+              const details = providerDetails[providerKey];
+              return (
+                <DropdownMenuRadioItem key={providerKey} value={providerKey} className="flex items-center cursor-pointer justify-between">
+                  <div className="flex items-center">
+                    {details.icon}
+                    <div>
+                      <div>{details.label}</div>
+                      <div className="text-xs text-muted-foreground">{details.defaultModel}</div>
+                    </div>
+                  </div>
+                  {details.apiKeyEnvVar && (
+                     <Tooltip delayDuration={300}>
+                        <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help ml-2"/>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" className="text-xs p-2 max-w-xs">
+                            Requires {details.apiKeyEnvVar} to be set in server environment variables (.env file for local).
+                        </TooltipContent>
+                    </Tooltip>
+                  )}
+                </DropdownMenuRadioItem>
+              );
+            })}
+          </DropdownMenuRadioGroup>
+
+          {selectedProvider === "ollama" && (
+            <>
+              <DropdownMenuSeparator />
+              <div className="p-2 space-y-2">
+                <Label htmlFor="ollamaModelName" className="text-sm font-medium">
+                  Ollama Model Name
+                </Label>
+                <div className="flex items-center space-x-2">
+                  <Input
+                    id="ollamaModelName"
+                    type="text"
+                    value={tempOllamaModel}
+                    onChange={(e) => setTempOllamaModel(e.target.value)}
+                    placeholder="e.g., qwen3:8b"
+                    className="h-8 text-xs"
+                  />
+                  <Button size="sm" onClick={handleOllamaModelChange} className="text-xs h-8" variant="outline">Set</Button>
+                </div>
+                 <p className="text-xs text-muted-foreground">Enter the exact Ollama model name (e.g., llama3:latest).</p>
+              </div>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </TooltipProvider>
   );
 }

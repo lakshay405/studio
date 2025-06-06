@@ -20,7 +20,8 @@ const HealthAnalysisInputSchema = z.object({
       'The product information to analyze. This can be a product name, a list of ingredients, a barcode, or a data URI of a product label image (e.g., "data:image/png;base64,..."). If providing a product name for a global brand, specify region if known (e.g., "Coca-Cola India").'
     ),
   userRegionHint: z.string().optional().describe('Optional hint for the user\'s current region, e.g., "India". This helps in tailoring warnings and comparisons.'),
-  aiService: z.enum(['gemini', 'ollama']).optional().describe('Specifies which AI service to use. If undefined, defaults based on USE_OLLAMA_LOCALLY env var.'),
+  aiServiceProvider: z.enum(['ollama', 'gemini', 'openai', 'anthropic']).describe('Specifies which AI service provider to use.'),
+  ollamaModelName: z.string().optional().describe('The name of the Ollama model to use, if aiServiceProvider is "ollama".'),
 });
 export type HealthAnalysisInput = z.infer<typeof HealthAnalysisInputSchema>;
 
@@ -68,7 +69,7 @@ export async function generateHealthAnalysis(input: HealthAnalysisInput): Promis
   return generateHealthAnalysisFlow(input);
 }
 
-const geminiPromptTemplate = `You are an expert AI assistant specializing in providing comprehensive, detailed, culturally-aware, and unbiased health analysis of food products. Your goal is to empower users, especially in INDIA, to make informed choices. Your language must be PLAIN, DIRECT, and ACTIONABLE. Avoid jargon.
+const basePromptTemplate = \`You are an expert AI assistant specializing in providing comprehensive, detailed, culturally-aware, and unbiased health analysis of food products. Your goal is to empower users, especially in INDIA, to make informed choices. Your language must be PLAIN, DIRECT, and ACTIONABLE. Avoid jargon.
 
 Product Information: {{{productInfo}}}
 {{#if userRegionHint}}User's Region Hint: {{{userRegionHint}}}{{/if}}
@@ -140,25 +141,23 @@ Primary Task: Analyze the provided product information and generate a thorough h
 Tone: Empathetic, empowering, informative, and direct. Highlight discrepancies to build trust.
 
 Generate the full JSON output according to the HealthAnalysisOutputSchema. Ensure all new fields are populated thoughtfully.
-`;
+\`;
 
-const generateHealthAnalysisPrompt = ai.definePrompt({
+const genkitPromptDefinition = ai.definePrompt({
   name: 'generateHealthAnalysisPrompt',
-  input: {schema: HealthAnalysisInputSchema},
+  input: {schema: HealthAnalysisInputSchema.omit({aiServiceProvider: true, ollamaModelName: true })}, // These are for routing, not the prompt itself
   output: {schema: HealthAnalysisOutputSchema},
-  prompt: geminiPromptTemplate,
+  prompt: basePromptTemplate, 
 });
 
 // Helper to manually fill a simplified "template" for Ollama
 function fillPromptTemplate(template: string, data: Record<string, any>): string {
   let result = template;
-  // Replace {{{key}}}
   for (const key in data) {
     if (data[key] !== undefined) {
       result = result.replace(new RegExp(`{{{${key}}}}`, 'g'), String(data[key]));
     }
   }
-  // Basic if/else for userRegionHint
   if (data.userRegionHint) {
     result = result.replace(/{{#if userRegionHint}}([\s\S]*?){{\/if}}/g, (match, p1) => 
       p1.replace('{{{userRegionHint}}}', String(data.userRegionHint))
@@ -169,25 +168,28 @@ function fillPromptTemplate(template: string, data: Record<string, any>): string
   return result;
 }
 
-
 const generateHealthAnalysisFlow = ai.defineFlow(
   {
     name: 'generateHealthAnalysisFlow',
     inputSchema: HealthAnalysisInputSchema,
     outputSchema: HealthAnalysisOutputSchema,
   },
-  async (input: HealthAnalysisInput) => {
+  async (input: HealthAnalysisInput): Promise<HealthAnalysisOutput> => {
     try {
-      const shouldUseOllama = (input.aiService === 'ollama') || (input.aiService === undefined && process.env.USE_OLLAMA_LOCALLY === 'true');
-      const ollamaModel = 'qwen3:8b'; // Or make this dynamic if needed
+      const { aiServiceProvider, ollamaModelName, productInfo, userRegionHint } = input;
+      const promptData = { productInfo, userRegionHint };
+      let modelIdentifier: string;
+      let serviceName = aiServiceProvider;
 
-      if (shouldUseOllama) {
-        console.log(`Using Ollama (${ollamaModel}) for health analysis...`);
-        const ollamaPromptText = fillPromptTemplate(geminiPromptTemplate, { productInfo: input.productInfo, userRegionHint: input.userRegionHint });
+      if (aiServiceProvider === 'ollama') {
+        modelIdentifier = ollamaModelName || 'qwen3:8b'; 
+        serviceName = \`Ollama (\${modelIdentifier})\`;
+        console.log(\`Using \${serviceName} for health analysis...\`);
+        const ollamaPromptText = fillPromptTemplate(basePromptTemplate, promptData);
         const finalOllamaPrompt = ollamaPromptText + "\\n\\nIMPORTANT: Your entire response MUST be a single, valid JSON object matching the HealthAnalysisOutputSchema structure described in the initial instructions. Do not include any explanatory text, comments, or markdown formatting like \`\`\`json ... \`\`\` before or after the JSON object itself.";
-
+        
         const ollamaPayload = {
-          model: ollamaModel, 
+          model: modelIdentifier, 
           prompt: finalOllamaPrompt,
           stream: false,
           format: 'json', 
@@ -202,103 +204,108 @@ const generateHealthAnalysisFlow = ai.defineFlow(
         if (!ollamaResponse.ok) {
           const errorBody = await ollamaResponse.text();
           console.error('Ollama API error:', ollamaResponse.status, errorBody);
-          throw new Error(`Ollama API request failed: ${ollamaResponse.status} - ${errorBody}`);
+          throw new Error(\`Ollama API request failed: \${ollamaResponse.status} - \${errorBody}\`);
         }
 
         const ollamaResult = await ollamaResponse.json();
-        
         let outputJson;
         if (typeof ollamaResult.response === 'string') {
-            try {
-                outputJson = JSON.parse(ollamaResult.response);
-            } catch (e) {
-                console.error("Failed to parse JSON string from Ollama's response field:", ollamaResult.response, e);
-                throw new Error(`Ollama returned a string in 'response' that is not valid JSON. Content: ${ollamaResult.response}`);
-            }
-        } else if (typeof ollamaResult.response === 'object') {
+            try { outputJson = JSON.parse(ollamaResult.response); } 
+            catch (e) { throw new Error(\`Ollama returned a string in 'response' that is not valid JSON. Content: \${ollamaResult.response}\`); }
+        } else if (typeof ollamaResult.response === 'object') { 
             outputJson = ollamaResult.response;
-        } else if (ollamaResult.message && ollamaResult.message.content && typeof ollamaResult.message.content === 'string' && (ollamaResult.message.role === 'assistant' || ollamaResult.message.role === 'model')) {
-             try {
-                outputJson = JSON.parse(ollamaResult.message.content);
-            } catch (e) {
-                console.error("Failed to parse JSON string from Ollama's message.content field:", ollamaResult.message.content, e);
-                throw new Error(`Ollama returned a string in 'message.content' that is not valid JSON. Content: ${ollamaResult.message.content}`);
-            }
-        }
-        else {
-            console.error("Unexpected Ollama response structure:", ollamaResult);
-            throw new Error(`Ollama response field is not a JSON string or expected object. Full response: ${JSON.stringify(ollamaResult)}`);
+        } else if (ollamaResult.message && ollamaResult.message.content && typeof ollamaResult.message.content === 'string') { 
+             try { outputJson = JSON.parse(ollamaResult.message.content); }
+             catch (e) { throw new Error(\`Ollama returned a string in 'message.content' that is not valid JSON. Content: \${ollamaResult.message.content}\`);}
+        } else {
+            throw new Error(\`Ollama response field is not a JSON string or expected object. Full response: \${JSON.stringify(ollamaResult)}\`);
         }
         
         const validatedOutput = HealthAnalysisOutputSchema.safeParse(outputJson);
         if (!validatedOutput.success) {
           console.error("Ollama output failed Zod validation:", validatedOutput.error.errors);
           console.error("Problematic Ollama output (raw JSON):", JSON.stringify(outputJson, null, 2));
-          throw new Error(`Ollama output did not match the expected schema. Validation errors: ${JSON.stringify(validatedOutput.error.format())}`);
+          throw new Error(\`Ollama output did not match the expected schema. Validation errors: \${JSON.stringify(validatedOutput.error.format())}\`);
         }
         
-        const ollamaFinalOutput = {
+        return {
             ...validatedOutput.data,
             confidenceScore: validatedOutput.data.confidenceScore > 0 ? validatedOutput.data.confidenceScore : 60, 
-            sources: validatedOutput.data.sources?.length > 0 ? validatedOutput.data.sources : [`Ollama ${ollamaModel} (Local LLM)`],
+            sources: validatedOutput.data.sources?.length > 0 ? validatedOutput.data.sources : [serviceName],
         };
-        return ollamaFinalOutput;
 
       } else { 
-        console.log('Using Google AI (Gemini) for health analysis...');
-        // For Gemini, we pass the productInfo and userRegionHint directly as they are part of the prompt template.
-        // aiService is not directly used by the gemini prompt definition itself, but was used to route here.
-        const {output} = await generateHealthAnalysisPrompt({productInfo: input.productInfo, userRegionHint: input.userRegionHint});
+        switch (aiServiceProvider) {
+          case 'gemini':
+            modelIdentifier = 'googleai/gemini-2.0-flash';
+            break;
+          case 'openai':
+            modelIdentifier = 'openai/gpt-3.5-turbo'; 
+            break;
+          case 'anthropic':
+            modelIdentifier = 'anthropic/claude-3-haiku-20240307'; 
+            break;
+          default:
+            throw new Error(\`Unsupported AI service provider: \${aiServiceProvider}\`);
+        }
+        serviceName = \`\${aiServiceProvider} (\${modelIdentifier.split('/')[1]})\`;
+        console.log(\`Using Genkit (\${serviceName}) for health analysis...\`);
+
+        const {output} = await genkitPromptDefinition(promptData, { model: modelIdentifier });
 
         if (!output) {
-          console.warn('Initial health analysis output was empty, retrying once.');
-          const retryResult = await generateHealthAnalysisPrompt({productInfo: input.productInfo, userRegionHint: input.userRegionHint});
+          console.warn(\`Initial health analysis output from \${serviceName} was empty, retrying once.\`);
+          const retryResult = await genkitPromptDefinition(promptData, { model: modelIdentifier });
           if (retryResult.output) {
             return retryResult.output;
           } else {
-            console.error('Failed to generate health analysis after retry. Output was still empty.');
-            throw new Error('Failed to generate health analysis after retry.');
+            console.error(\`Failed to generate health analysis from \${serviceName} after retry. Output was still empty.\`);
+            throw new Error(\`Failed to generate health analysis from \${serviceName} after retry.\`);
           }
         }
         
         if (!output.summary || !output.ingredientAnalysis || output.ingredientAnalysis.length === 0) {
-           console.warn('Health analysis output was missing key fields (summary or ingredientAnalysis), retrying once.');
-           const retryResult = await generateHealthAnalysisPrompt({productInfo: input.productInfo, userRegionHint: input.userRegionHint});
+           console.warn(\`Health analysis output from \${serviceName} was missing key fields (summary or ingredientAnalysis), retrying once.\`);
+           const retryResult = await genkitPromptDefinition(promptData, { model: modelIdentifier });
            if (retryResult.output && retryResult.output.summary && retryResult.output.ingredientAnalysis && retryResult.output.ingredientAnalysis.length > 0) {
              return retryResult.output;
            } else {
-             console.error('Failed to generate health analysis with key fields after retry.');
+             console.error(\`Failed to generate health analysis with key fields from \${serviceName} after retry.\`);
              return {
-               summary: output.summary || 'Health analysis could not be fully generated. Key information is missing.',
+               summary: output.summary || \`Health analysis from \${serviceName} could not be fully generated. Key information is missing.\`,
                ingredientAnalysis: output.ingredientAnalysis || [],
                packagingAnalysis: output.packagingAnalysis || 'Not available.',
                preservativesAndAdditivesAnalysis: output.preservativesAndAdditivesAnalysis || 'Not available.',
                breakdown: output.breakdown || 'Partial data available. Critical analysis components might be missing.',
                regulatoryStatus: output.regulatoryStatus || 'Status not available.',
                confidenceScore: output.confidenceScore || 0,
-               sources: output.sources || [],
-               detectedRegion: output.detectedRegion || 'Unknown',
-               regionalVariations: output.regionalVariations || [],
-               overallWarning: output.overallWarning || undefined,
-               overallRiskScore: output.overallRiskScore,
-               overallRiskLevel: output.overallRiskLevel,
-               healthierAlternatives: output.healthierAlternatives,
-               corporatePracticesNote: output.corporatePracticesNote,
-               consumerRightsTip: output.consumerRightsTip || "Consumer rights information could not be loaded.",
-               estimatedNutriScore: output.estimatedNutriScore,
+               sources: output.sources?.length > 0 ? output.sources : [serviceName],
+               detectedRegion: output.detectedRegion || input.userRegionHint || 'Unknown',
+                regionalVariations: output.regionalVariations || [],
+                overallWarning: output.overallWarning || undefined,
+                overallRiskScore: output.overallRiskScore,
+                overallRiskLevel: output.overallRiskLevel,
+                healthierAlternatives: output.healthierAlternatives,
+                corporatePracticesNote: output.corporatePracticesNote,
+                consumerRightsTip: output.consumerRightsTip,
+                estimatedNutriScore: output.estimatedNutriScore,
              };
            }
         }
 
-        if (!output.consumerRightsTip && (output.detectedRegion?.toLowerCase() === 'india' || !output.detectedRegion)) {
+        if (!output.consumerRightsTip && (output.detectedRegion?.toLowerCase() === 'india' || (!output.detectedRegion && input.userRegionHint?.toLowerCase() === 'india'))) {
           output.consumerRightsTip = "Did you know? As a consumer in India, you can file complaints with the Food Safety and Standards Authority of India (FSSAI) if you find product labeling to be misleading or incomplete. Visit their portal: https://foodlicensing.fssai.gov.in/cmsweb/Complaints.aspx";
+        }
+        if (!output.sources || output.sources.length === 0) {
+            output.sources = [serviceName];
         }
         return output;
       }
     } catch (error: any) {
       console.error('Error in generateHealthAnalysisFlow:', error);
-      return {
-        summary: `Health analysis encountered an error: ${error.message ? error.message : 'Unknown error'}`,
+      const serviceDetail = input.aiServiceProvider === 'ollama' ? \`Ollama (\${input.ollamaModelName || 'default'})\` : input.aiServiceProvider;
+      return { 
+        summary: \`AI service error (\${serviceDetail}): \${error.message ? error.message : 'Unknown error during health analysis.'}\`,
         ingredientAnalysis: [],
         packagingAnalysis: 'Not available due to error.',
         preservativesAndAdditivesAnalysis: 'Not available due to error.',
@@ -308,7 +315,7 @@ const generateHealthAnalysisFlow = ai.defineFlow(
         sources: ['Error in processing'],
         detectedRegion: input.userRegionHint || 'Error',
         regionalVariations: [],
-        overallWarning: 'Analysis could not be performed due to an internal error.',
+        overallWarning: \`Analysis could not be performed due to an internal error with \${serviceDetail}.\`,
         overallRiskScore: undefined,
         overallRiskLevel: 'Error',
         healthierAlternatives: [],
@@ -319,3 +326,5 @@ const generateHealthAnalysisFlow = ai.defineFlow(
     }
   }
 );
+
+    

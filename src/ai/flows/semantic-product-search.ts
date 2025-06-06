@@ -14,7 +14,8 @@ import {z} from 'genkit';
 
 const SemanticProductSearchInputSchema = z.object({
   productName: z.string().describe('The name of the product to search for.'),
-  aiService: z.enum(['gemini', 'ollama']).optional().describe('Specifies which AI service to use. If undefined, defaults based on USE_OLLAMA_LOCALLY env var.'),
+  aiServiceProvider: z.enum(['ollama', 'gemini', 'openai', 'anthropic']).describe('Specifies which AI service provider to use.'),
+  ollamaModelName: z.string().optional().describe('The name of the Ollama model to use, if aiServiceProvider is "ollama".'),
 });
 export type SemanticProductSearchInput = z.infer<typeof SemanticProductSearchInputSchema>;
 
@@ -29,18 +30,19 @@ export async function semanticProductSearch(input: SemanticProductSearchInput): 
   return semanticProductSearchFlow(input);
 }
 
-const geminiSearchPromptTemplate = `You are a product search assistant. Given the product name, you will search for relevant products using semantic search.
+const baseSearchPromptTemplate = \`You are a product search assistant. Given the product name, you will search for relevant products using semantic search.
 
 Product name: {{{productName}}}
 
-Return a list of relevant product names.`;
+Return a list of relevant product names. Your entire response must be a single, valid JSON object with a single key 'searchResults' which is an array of strings. Do not include any explanatory text or markdown formatting before or after the JSON object.\`;
 
-const semanticProductSearchPrompt = ai.definePrompt({
+const genkitSearchPromptDefinition = ai.definePrompt({
   name: 'semanticProductSearchPrompt',
-  input: {schema: SemanticProductSearchInputSchema.omit({aiService: true})}, // aiService is for routing, not for the prompt itself
+  input: {schema: SemanticProductSearchInputSchema.pick({productName: true})}, 
   output: {schema: SemanticProductSearchOutputSchema},
-  prompt: geminiSearchPromptTemplate,
+  prompt: baseSearchPromptTemplate, // Base template, might need adjustments for some models to enforce JSON
 });
+
 
 // Helper to manually fill a simplified "template" for Ollama
 function fillSearchPromptTemplate(template: string, data: Record<string, any>): string {
@@ -61,17 +63,19 @@ const semanticProductSearchFlow = ai.defineFlow(
   },
   async (input: SemanticProductSearchInput) : Promise<SemanticProductSearchOutput> => {
     try {
-      const shouldUseOllama = (input.aiService === 'ollama') || (input.aiService === undefined && process.env.USE_OLLAMA_LOCALLY === 'true');
-      const ollamaModel = 'qwen3:8b'; // Or make this dynamic if needed
+      const { aiServiceProvider, ollamaModelName, productName } = input;
+      const promptData = { productName };
+      let modelIdentifier: string;
 
-      if (shouldUseOllama) {
-        console.log(`Using Ollama (${ollamaModel}) for semantic product search...`);
-        const ollamaPromptText = fillSearchPromptTemplate(geminiSearchPromptTemplate, { productName: input.productName });
-        const finalOllamaPrompt = ollamaPromptText + "\\n\\nIMPORTANT: Your entire response must be a single, valid JSON object with a single key 'searchResults' which is an array of strings. Do not include any explanatory text or markdown formatting before or after the JSON object.";
+      if (aiServiceProvider === 'ollama') {
+        modelIdentifier = ollamaModelName || 'qwen3:8b'; // Default Ollama model
+        console.log(`Using Ollama (${modelIdentifier}) for semantic product search...`);
+        const ollamaPromptText = fillSearchPromptTemplate(baseSearchPromptTemplate, promptData);
+        // The base prompt already strongly requests JSON, so no need to append further instructions here.
         
         const ollamaPayload = {
-          model: ollamaModel, 
-          prompt: finalOllamaPrompt,
+          model: modelIdentifier, 
+          prompt: ollamaPromptText,
           stream: false,
           format: 'json',
         };
@@ -92,16 +96,15 @@ const semanticProductSearchFlow = ai.defineFlow(
         let outputJson;
 
         if (typeof ollamaResult.response === 'string') {
-            try {
-                outputJson = JSON.parse(ollamaResult.response);
-            } catch (e) {
-                 console.error("Failed to parse JSON string from Ollama's response field (search):", ollamaResult.response, e);
-                throw new Error(`Ollama returned a string in 'response' (search) that is not valid JSON. Content: ${ollamaResult.response}`);
-            }
+            try { outputJson = JSON.parse(ollamaResult.response); } 
+            catch (e) { throw new Error(`Ollama returned a string in 'response' (search) that is not valid JSON. Content: ${ollamaResult.response}`);}
         } else if (typeof ollamaResult.response === 'object') {
             outputJson = ollamaResult.response;
-        } else {
-            console.error("Unexpected Ollama response structure (search):", ollamaResult);
+        } else if (ollamaResult.message && ollamaResult.message.content && typeof ollamaResult.message.content === 'string') {
+             try { outputJson = JSON.parse(ollamaResult.message.content); }
+             catch (e) { throw new Error(`Ollama returned a string in 'message.content' (search) that is not valid JSON. Content: ${ollamaResult.message.content}`);}
+        }
+         else {
             throw new Error(`Ollama response field (search) is not a JSON string or expected object. Full response: ${JSON.stringify(ollamaResult)}`);
         }
 
@@ -113,16 +116,35 @@ const semanticProductSearchFlow = ai.defineFlow(
         }
         return validatedOutput.data;
 
-      } else { 
-        console.log('Using Google AI (Gemini) for semantic product search...');
-        // For Gemini, we pass the productName directly. aiService is not used by the prompt.
-        const {output} = await semanticProductSearchPrompt({productName: input.productName});
-        return output!;
+      } else { // For Genkit-supported cloud providers
+        let genkitModelString = '';
+        switch (aiServiceProvider) {
+          case 'gemini':
+            genkitModelString = 'googleai/gemini-2.0-flash';
+            break;
+          case 'openai':
+            genkitModelString = 'openai/gpt-3.5-turbo';
+            break;
+          case 'anthropic':
+            genkitModelString = 'anthropic/claude-3-haiku-20240307';
+            break;
+          default:
+            throw new Error(`Unsupported AI service provider for search: ${aiServiceProvider}`);
+        }
+        modelIdentifier = genkitModelString;
+        console.log(`Using Genkit (${modelIdentifier}) for semantic product search...`);
+        
+        const {output} = await genkitSearchPromptDefinition(promptData, {model: modelIdentifier});
+        if (!output) {
+          throw new Error(`Semantic product search with ${modelIdentifier} returned no output.`);
+        }
+        return output;
       }
     } catch (error: any) {
         console.error('Error in semanticProductSearchFlow:', error);
+        const serviceName = input.aiServiceProvider === 'ollama' ? `Ollama (${input.ollamaModelName || 'default'})` : input.aiServiceProvider;
         return {
-            searchResults: [`Search failed: ${error.message ? error.message : 'Unknown error'}`],
+            searchResults: [`AI service error (${serviceName}): ${error.message ? error.message : 'Unknown error during product search.'}`],
         };
     }
   }
