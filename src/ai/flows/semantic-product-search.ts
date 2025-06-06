@@ -30,11 +30,11 @@ export async function semanticProductSearch(input: SemanticProductSearchInput): 
   return semanticProductSearchFlow(input);
 }
 
-const baseSearchPromptTemplate = \`You are a product search assistant. Given the product name, you will search for relevant products using semantic search.
+const baseSearchPromptTemplate = `You are a product search assistant. Given the product name, you will search for relevant products using semantic search.
 
 Product name: {{{productName}}}
 
-Return a list of relevant product names. Your entire response must be a single, valid JSON object with a single key 'searchResults' which is an array of strings. Do not include any explanatory text or markdown formatting before or after the JSON object.\`;
+Return a list of relevant product names. Your entire response must be a single, valid JSON object with a single key 'searchResults' which is an array of strings. Do not include any explanatory text or markdown formatting before or after the JSON object.`;
 
 const genkitSearchPromptDefinition = ai.definePrompt({
   name: 'semanticProductSearchPrompt',
