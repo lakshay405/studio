@@ -20,6 +20,7 @@ const HealthAnalysisInputSchema = z.object({
       'The product information to analyze. This can be a product name, a list of ingredients, a barcode, or a data URI of a product label image (e.g., "data:image/png;base64,..."). If providing a product name for a global brand, specify region if known (e.g., "Coca-Cola India").'
     ),
   userRegionHint: z.string().optional().describe('Optional hint for the user\'s current region, e.g., "India". This helps in tailoring warnings and comparisons.'),
+  aiService: z.enum(['gemini', 'ollama']).optional().describe('Specifies which AI service to use. If undefined, defaults based on USE_OLLAMA_LOCALLY env var.'),
 });
 export type HealthAnalysisInput = z.infer<typeof HealthAnalysisInputSchema>;
 
@@ -177,13 +178,16 @@ const generateHealthAnalysisFlow = ai.defineFlow(
   },
   async (input: HealthAnalysisInput) => {
     try {
-      if (process.env.USE_OLLAMA_LOCALLY === 'true') {
-        console.log('Using Ollama for health analysis...');
+      const shouldUseOllama = (input.aiService === 'ollama') || (input.aiService === undefined && process.env.USE_OLLAMA_LOCALLY === 'true');
+      const ollamaModel = 'qwen3:8b'; // Or make this dynamic if needed
+
+      if (shouldUseOllama) {
+        console.log(`Using Ollama (${ollamaModel}) for health analysis...`);
         const ollamaPromptText = fillPromptTemplate(geminiPromptTemplate, { productInfo: input.productInfo, userRegionHint: input.userRegionHint });
         const finalOllamaPrompt = ollamaPromptText + "\\n\\nIMPORTANT: Your entire response MUST be a single, valid JSON object matching the HealthAnalysisOutputSchema structure described in the initial instructions. Do not include any explanatory text, comments, or markdown formatting like \`\`\`json ... \`\`\` before or after the JSON object itself.";
 
         const ollamaPayload = {
-          model: 'qwen3:8b', 
+          model: ollamaModel, 
           prompt: finalOllamaPrompt,
           stream: false,
           format: 'json', 
@@ -236,16 +240,19 @@ const generateHealthAnalysisFlow = ai.defineFlow(
         const ollamaFinalOutput = {
             ...validatedOutput.data,
             confidenceScore: validatedOutput.data.confidenceScore > 0 ? validatedOutput.data.confidenceScore : 60, 
-            sources: validatedOutput.data.sources?.length > 0 ? validatedOutput.data.sources : ["Ollama qwen3:8b (Local LLM)"],
+            sources: validatedOutput.data.sources?.length > 0 ? validatedOutput.data.sources : [`Ollama ${ollamaModel} (Local LLM)`],
         };
         return ollamaFinalOutput;
 
       } else { 
-        const {output} = await generateHealthAnalysisPrompt(input);
+        console.log('Using Google AI (Gemini) for health analysis...');
+        // For Gemini, we pass the productInfo and userRegionHint directly as they are part of the prompt template.
+        // aiService is not directly used by the gemini prompt definition itself, but was used to route here.
+        const {output} = await generateHealthAnalysisPrompt({productInfo: input.productInfo, userRegionHint: input.userRegionHint});
 
         if (!output) {
           console.warn('Initial health analysis output was empty, retrying once.');
-          const retryResult = await generateHealthAnalysisPrompt(input);
+          const retryResult = await generateHealthAnalysisPrompt({productInfo: input.productInfo, userRegionHint: input.userRegionHint});
           if (retryResult.output) {
             return retryResult.output;
           } else {
@@ -256,7 +263,7 @@ const generateHealthAnalysisFlow = ai.defineFlow(
         
         if (!output.summary || !output.ingredientAnalysis || output.ingredientAnalysis.length === 0) {
            console.warn('Health analysis output was missing key fields (summary or ingredientAnalysis), retrying once.');
-           const retryResult = await generateHealthAnalysisPrompt(input);
+           const retryResult = await generateHealthAnalysisPrompt({productInfo: input.productInfo, userRegionHint: input.userRegionHint});
            if (retryResult.output && retryResult.output.summary && retryResult.output.ingredientAnalysis && retryResult.output.ingredientAnalysis.length > 0) {
              return retryResult.output;
            } else {
@@ -312,5 +319,3 @@ const generateHealthAnalysisFlow = ai.defineFlow(
     }
   }
 );
-
-    

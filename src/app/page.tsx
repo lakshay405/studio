@@ -1,17 +1,18 @@
 
 "use client";
 
-import { useState, useEffect, useRef } from 'react'; // Added useRef
+import { useState, useEffect, useRef } from 'react';
 import { Logo } from '@/components/logo';
 import { QueryForm } from '@/components/query-form';
 import { SearchResultsDisplay } from '@/components/search-results-display';
 import { HealthReportDisplay } from '@/components/health-report-display';
-import { semanticProductSearch, SemanticProductSearchOutput } from '@/ai/flows/semantic-product-search';
+import { semanticProductSearch, SemanticProductSearchOutput, SemanticProductSearchInput } from '@/ai/flows/semantic-product-search';
 import { generateHealthAnalysis, HealthAnalysisOutput, HealthAnalysisInput } from '@/ai/flows/generate-health-analysis';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertTriangle, Loader2, Cpu } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react"; // Removed Cpu from here
 import { Card, CardContent } from '@/components/ui/card';
+import { AIServiceSelector, type AIService } from '@/components/ai-service-selector'; // Added AIServiceSelector
 
 type InputType = "name" | "barcode" | "ingredients" | "image";
 
@@ -32,23 +33,23 @@ export default function NutriSleuthPage() {
   const [searchResults, setSearchResults] = useState<SemanticProductSearchOutput['searchResults'] | null>(null);
   const [selectedProductForAnalysis, setSelectedProductForAnalysis] = useState<string | null>(null);
   const [healthAnalysis, setHealthAnalysis] = useState<HealthAnalysisOutput | null>(null);
-  const [userRegionHint, setUserRegionHint] = useState<string>("India"); // Default to India, can be made dynamic later
-  const [isOllamaMode, setIsOllamaMode] = useState(false);
+  const [userRegionHint, setUserRegionHint] = useState<string>("India"); 
+  
+  const [selectedAIService, setSelectedAIService] = useState<AIService>(
+    process.env.NEXT_PUBLIC_USE_OLLAMA_LOCALLY === 'true' ? 'ollama' : 'gemini'
+  );
+  // Default model names, can be made dynamic if needed
+  const geminiModelName = "gemini-2.0-flash"; 
+  const ollamaModelName = "qwen3:8b";
 
 
   const { toast } = useToast();
 
   useEffect(() => {
-    // Check environment variable on the client-side
-    // NEXT_PUBLIC_ prefixed variables are exposed to the browser
-    setIsOllamaMode(process.env.NEXT_PUBLIC_USE_OLLAMA_LOCALLY === 'true');
     try {
-      // Basic way to get a region hint, could be expanded (e.g. geolocation API)
       const timezoneRegion = Intl.DateTimeFormat().resolvedOptions().timeZone.split('/')[0];
-      if (timezoneRegion?.toLowerCase().includes("kolkata") || timezoneRegion?.toLowerCase().includes("calcutta")) { // Example, this is not robust
+      if (timezoneRegion?.toLowerCase().includes("kolkata") || timezoneRegion?.toLowerCase().includes("calcutta")) {
         setUserRegionHint("India");
-      } else if (timezoneRegion) {
-        // setUserRegionHint(timezoneRegion); // Or a mapping
       }
     } catch (e) {
       // console.warn("Could not determine user region hint from timezone.");
@@ -68,8 +69,12 @@ export default function NutriSleuthPage() {
     
     if (type === "name") {
       setIsLoading(true);
+      const searchInput: SemanticProductSearchInput = {
+        productName: data as string,
+        aiService: selectedAIService,
+      };
       try {
-        const result = await semanticProductSearch({ productName: data as string });
+        const result = await semanticProductSearch(searchInput);
         setSearchResults(result.searchResults);
         if (!result.searchResults || result.searchResults.length === 0) {
           setErrorMessage("No products found for your search term. Please try a different name.");
@@ -86,7 +91,7 @@ export default function NutriSleuthPage() {
         setIsLoading(false);
       }
     } else { 
-      setIsLoading(true); // Changed to setIsLoading for direct analysis
+      setIsLoading(true);
       let productInfoValue: string;
       if (type === "image" && data instanceof File) {
         try {
@@ -104,7 +109,8 @@ export default function NutriSleuthPage() {
       setSelectedProductForAnalysis(type === 'barcode' ? `Barcode: ${data}` : type === 'ingredients' ? 'Custom Ingredients' : 'Uploaded Image');
       const analysisInput: HealthAnalysisInput = { 
         productInfo: productInfoValue,
-        userRegionHint: userRegionHint 
+        userRegionHint: userRegionHint,
+        aiService: selectedAIService,
       };
       try {
         const analysis = await generateHealthAnalysis(analysisInput);
@@ -120,7 +126,7 @@ export default function NutriSleuthPage() {
         setErrorMessage(displayError);
         toast({ variant: "destructive", title: "Analysis Error", description: displayError });
       } finally {
-        setIsLoading(false); // Changed to setIsLoading
+        setIsLoading(false);
       }
     }
   };
@@ -132,7 +138,8 @@ export default function NutriSleuthPage() {
     
     const analysisInput: HealthAnalysisInput = { 
       productInfo: productName,
-      userRegionHint: userRegionHint
+      userRegionHint: userRegionHint,
+      aiService: selectedAIService,
     };
     try {
       const analysis = await generateHealthAnalysis(analysisInput);
@@ -169,7 +176,7 @@ export default function NutriSleuthPage() {
             <QueryForm
               isLoading={isLoading || isAnalyzing}
               onSearchOrAnalyze={handleSearchOrAnalyze}
-              currentError={errorMessage} // Pass error message to QueryForm if needed, or handle here
+              currentError={errorMessage}
             />
           </CardContent>
         </Card>
@@ -211,16 +218,19 @@ export default function NutriSleuthPage() {
       </main>
 
       <footer className="w-full max-w-3xl mt-12 pt-8 border-t border-border text-center">
+        <div className="mb-4">
+          <AIServiceSelector 
+            selectedService={selectedAIService}
+            setSelectedService={setSelectedAIService}
+            geminiModelName={geminiModelName}
+            ollamaModelName={ollamaModelName}
+          />
+        </div>
         <p className="text-sm text-muted-foreground">
           NutriSleuth &copy; {new Date().getFullYear()}. For informational purposes only. Not medical advice.
         </p>
         <p className="text-xs text-muted-foreground/70 mt-1">
           User region hint: {userRegionHint || "Not set (defaulting to India focus)"}.
-          {isOllamaMode && (
-            <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-              <Cpu size={12} /> Local LLM Active
-            </span>
-          )}
         </p>
          <p className="text-xs text-muted-foreground/70 mt-1">
           Product analyses are AI-generated and may require verification.

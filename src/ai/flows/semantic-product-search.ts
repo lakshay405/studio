@@ -14,6 +14,7 @@ import {z} from 'genkit';
 
 const SemanticProductSearchInputSchema = z.object({
   productName: z.string().describe('The name of the product to search for.'),
+  aiService: z.enum(['gemini', 'ollama']).optional().describe('Specifies which AI service to use. If undefined, defaults based on USE_OLLAMA_LOCALLY env var.'),
 });
 export type SemanticProductSearchInput = z.infer<typeof SemanticProductSearchInputSchema>;
 
@@ -36,7 +37,7 @@ Return a list of relevant product names.`;
 
 const semanticProductSearchPrompt = ai.definePrompt({
   name: 'semanticProductSearchPrompt',
-  input: {schema: SemanticProductSearchInputSchema},
+  input: {schema: SemanticProductSearchInputSchema.omit({aiService: true})}, // aiService is for routing, not for the prompt itself
   output: {schema: SemanticProductSearchOutputSchema},
   prompt: geminiSearchPromptTemplate,
 });
@@ -60,13 +61,16 @@ const semanticProductSearchFlow = ai.defineFlow(
   },
   async (input: SemanticProductSearchInput) : Promise<SemanticProductSearchOutput> => {
     try {
-      if (process.env.USE_OLLAMA_LOCALLY === 'true') {
-        console.log('Using Ollama for semantic product search...');
+      const shouldUseOllama = (input.aiService === 'ollama') || (input.aiService === undefined && process.env.USE_OLLAMA_LOCALLY === 'true');
+      const ollamaModel = 'qwen3:8b'; // Or make this dynamic if needed
+
+      if (shouldUseOllama) {
+        console.log(`Using Ollama (${ollamaModel}) for semantic product search...`);
         const ollamaPromptText = fillSearchPromptTemplate(geminiSearchPromptTemplate, { productName: input.productName });
         const finalOllamaPrompt = ollamaPromptText + "\\n\\nIMPORTANT: Your entire response must be a single, valid JSON object with a single key 'searchResults' which is an array of strings. Do not include any explanatory text or markdown formatting before or after the JSON object.";
         
         const ollamaPayload = {
-          model: 'qwen3:8b', 
+          model: ollamaModel, 
           prompt: finalOllamaPrompt,
           stream: false,
           format: 'json',
@@ -110,7 +114,9 @@ const semanticProductSearchFlow = ai.defineFlow(
         return validatedOutput.data;
 
       } else { 
-        const {output} = await semanticProductSearchPrompt(input);
+        console.log('Using Google AI (Gemini) for semantic product search...');
+        // For Gemini, we pass the productName directly. aiService is not used by the prompt.
+        const {output} = await semanticProductSearchPrompt({productName: input.productName});
         return output!;
       }
     } catch (error: any) {
@@ -121,6 +127,3 @@ const semanticProductSearchFlow = ai.defineFlow(
     }
   }
 );
-
-
-    
