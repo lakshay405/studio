@@ -183,7 +183,7 @@ const generateHealthAnalysisFlow = ai.defineFlow(
         const finalOllamaPrompt = ollamaPromptText + "\\n\\nIMPORTANT: Your entire response MUST be a single, valid JSON object matching the HealthAnalysisOutputSchema structure described in the initial instructions. Do not include any explanatory text, comments, or markdown formatting like \`\`\`json ... \`\`\` before or after the JSON object itself.";
 
         const ollamaPayload = {
-          model: 'qwen2:7b', // User can change this to qwen3:8b or other installed models
+          model: 'qwen3:8b', 
           prompt: finalOllamaPrompt,
           stream: false,
           format: 'json', 
@@ -204,8 +204,6 @@ const generateHealthAnalysisFlow = ai.defineFlow(
         const ollamaResult = await ollamaResponse.json();
         
         let outputJson;
-        // The 'response' field from Ollama (when format: 'json' is used) should directly be the JSON string.
-        // If not, it might be nested or require other parsing.
         if (typeof ollamaResult.response === 'string') {
             try {
                 outputJson = JSON.parse(ollamaResult.response);
@@ -214,10 +212,8 @@ const generateHealthAnalysisFlow = ai.defineFlow(
                 throw new Error(`Ollama returned a string in 'response' that is not valid JSON. Content: ${ollamaResult.response}`);
             }
         } else if (typeof ollamaResult.response === 'object') {
-            // If Ollama with format: 'json' sometimes returns an object directly (less common for /api/generate)
             outputJson = ollamaResult.response;
         } else if (ollamaResult.message && ollamaResult.message.content && typeof ollamaResult.message.content === 'string' && (ollamaResult.message.role === 'assistant' || ollamaResult.message.role === 'model')) {
-            // Fallback for models that might structure response like chat completion under /api/generate
              try {
                 outputJson = JSON.parse(ollamaResult.message.content);
             } catch (e) {
@@ -236,16 +232,15 @@ const generateHealthAnalysisFlow = ai.defineFlow(
           console.error("Problematic Ollama output (raw JSON):", JSON.stringify(outputJson, null, 2));
           throw new Error(`Ollama output did not match the expected schema. Validation errors: ${JSON.stringify(validatedOutput.error.format())}`);
         }
-        // Manually set a confidence score if Ollama is used, as it won't inherently provide one.
-        // This is a placeholder; actual confidence might be hard to determine.
+        
         const ollamaFinalOutput = {
             ...validatedOutput.data,
-            confidenceScore: validatedOutput.data.confidenceScore > 0 ? validatedOutput.data.confidenceScore : 60, // Default if not provided or 0
-            sources: validatedOutput.data.sources?.length > 0 ? validatedOutput.data.sources : ["Ollama qwen2:7b (Local LLM)"],
+            confidenceScore: validatedOutput.data.confidenceScore > 0 ? validatedOutput.data.confidenceScore : 60, 
+            sources: validatedOutput.data.sources?.length > 0 ? validatedOutput.data.sources : ["Ollama qwen3:8b (Local LLM)"],
         };
         return ollamaFinalOutput;
 
-      } else { // Use Google AI
+      } else { 
         const {output} = await generateHealthAnalysisPrompt(input);
 
         if (!output) {
@@ -317,3 +312,5 @@ const generateHealthAnalysisFlow = ai.defineFlow(
     }
   }
 );
+
+    

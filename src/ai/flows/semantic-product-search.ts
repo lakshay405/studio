@@ -66,7 +66,7 @@ const semanticProductSearchFlow = ai.defineFlow(
         const finalOllamaPrompt = ollamaPromptText + "\\n\\nIMPORTANT: Your entire response must be a single, valid JSON object with a single key 'searchResults' which is an array of strings. Do not include any explanatory text or markdown formatting before or after the JSON object.";
         
         const ollamaPayload = {
-          model: 'qwen2:7b', // User can change this
+          model: 'qwen3:8b', 
           prompt: finalOllamaPrompt,
           stream: false,
           format: 'json',
@@ -109,7 +109,7 @@ const semanticProductSearchFlow = ai.defineFlow(
         }
         return validatedOutput.data;
 
-      } else { // Use Google AI
+      } else { 
         const {output} = await semanticProductSearchPrompt(input);
         return output!;
       }
@@ -122,3 +122,5 @@ const semanticProductSearchFlow = ai.defineFlow(
   }
 );
 
+
+    
